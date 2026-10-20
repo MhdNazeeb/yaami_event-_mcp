@@ -22,9 +22,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (!env.mcp.apiToken && env.nodeEnv === 'production') {
+    console.warn('[MCP] MCP_API_TOKEN is not set — POST /mcp is open without authentication');
+  }
+
   const app = createApp();
-  const server = app.listen(env.port, () => {
-    console.log(`[http] Express listening on http://localhost:${env.port}`);
+  const server = app.listen(env.port, '0.0.0.0', () => {
+    console.log(`[http] Listening on 0.0.0.0:${env.port} (health /health, MCP POST /mcp)`);
   });
 
   const onShutdown = (signal: string) => {

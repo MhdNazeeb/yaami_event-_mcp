@@ -48,14 +48,17 @@ event-mcp-server/
 
 ## Run modes
 
-### HTTP API (Express)
+### HTTP API + remote MCP (Express)
 
 ```bash
 npm start
 ```
 
 - Health: `GET /health`
+- **Remote MCP (Streamable HTTP):** `POST /mcp` — use this URL when hosting on Render and connecting Claude or Cursor over HTTPS
 - REST mirrors core operations under `/api/events`
+
+Set `MCP_API_TOKEN` in production so clients must send `Authorization: Bearer <token>` on `/mcp`.
 
 ### MCP over stdio (Claude Desktop, Cursor, Inspector)
 
@@ -80,7 +83,7 @@ MCP_TRANSPORT=stdio node dist/server.js
 | `get_events_by_status` | Filter by `pending`, `advance_paid`, etc.            |
 | `update_event_status`  | Update status, advance, budget, or notes             |
 
-### Example: Cursor / Claude Desktop MCP config
+### Example: local stdio (Claude Desktop / Cursor)
 
 ```json
 {
@@ -95,6 +98,45 @@ MCP_TRANSPORT=stdio node dist/server.js
   }
 }
 ```
+
+### Deploy on Render
+
+1. Push this repo to GitHub and create a **Blueprint** from `render.yaml`, or add a **Web Service** with:
+   - **Build:** `npm install --include=dev && npm run build`
+   - **Start:** `npm start`
+   - **Health check path:** `/health`
+2. Set **`MONGODB_URI`** (e.g. MongoDB Atlas) in the Render dashboard. Render auto-generates **`MCP_API_TOKEN`** from the blueprint.
+3. After deploy, your MCP URL is:
+
+   `https://<your-service>.onrender.com/mcp`
+
+   Free instances spin down when idle; the first request may take 30–60s (cold start). Use a paid plan for always-on if connectors time out.
+
+### Connect Claude (claude.ai / mobile app)
+
+Remote servers use **Settings → Connectors → Add custom connector**, not `claude_desktop_config.json`.
+
+| Field | Value |
+|--------|--------|
+| URL | `https://<your-service>.onrender.com/mcp` |
+| Auth | Bearer token = your Render `MCP_API_TOKEN` |
+
+### Example: Cursor / Claude Desktop over HTTPS (hosted MCP)
+
+```json
+{
+  "mcpServers": {
+    "yaami-events": {
+      "url": "https://your-service.onrender.com/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_MCP_API_TOKEN"
+      }
+    }
+  }
+}
+```
+
+Claude Desktop may require `"type": "streamable-http"` on the same entry.
 
 ## Development
 

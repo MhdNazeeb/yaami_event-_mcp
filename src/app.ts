@@ -1,4 +1,6 @@
-import express, { type Express, type NextFunction, type Request, type Response } from 'express';
+import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
+import { type Express, type NextFunction, type Request, type Response } from 'express';
+import { mountMcpHttpRoutes } from './mcp/http.js';
 import {
   ServiceError,
   createEvent,
@@ -20,12 +22,16 @@ function routeParam(value: string | string[] | undefined): string {
  * Express application: health checks and optional REST mirror of event operations.
  */
 export function createApp(): Express {
-  const app = express();
+  const renderHost = process.env.RENDER_EXTERNAL_HOSTNAME?.trim();
+  const app = createMcpExpressApp({
+    host: '0.0.0.0',
+    allowedHosts: renderHost ? [renderHost] : undefined,
+  });
 
-  app.use(express.json({ limit: '1mb' }));
+  mountMcpHttpRoutes(app);
 
   app.get('/health', (_req: Request, res: Response) => {
-    res.json({ status: 'ok', service: 'event-mcp-server' });
+    res.json({ status: 'ok', service: 'event-mcp-server', mcp: '/mcp' });
   });
 
   app.post('/api/events', async (req: Request, res: Response, next: NextFunction) => {

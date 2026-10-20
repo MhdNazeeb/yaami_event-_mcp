@@ -1,7 +1,12 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { EVENT_STATUSES, type EventStatus } from '../types/event.js';
+import {
+  EVENT_STATUSES,
+  type CreateEventInput,
+  type EventStatus,
+  type UpdateEventInput,
+} from '../types/event.js';
 import {
   ServiceError,
   createEvent,
@@ -11,7 +16,54 @@ import {
   updateEventStatus,
 } from '../services/eventService.js';
 
-const statusSchema = z.enum([...EVENT_STATUSES] as [EventStatus, ...EventStatus[]]);
+type ToolHandler = (args: Record<string, unknown>) => Promise<CallToolResult>;
+
+/** Avoids TS2589 from MCP SDK registerTool generic inference with Zod 3. */
+function registerEventTool(
+  server: McpServer,
+  name: string,
+  description: string,
+  inputSchema: z.ZodTypeAny,
+  handler: ToolHandler,
+): void {
+  const register = server.registerTool.bind(server) as (
+    toolName: string,
+    config: { description: string; inputSchema: z.ZodTypeAny },
+    cb: ToolHandler,
+  ) => void;
+  register(name, { description, inputSchema }, handler);
+}
+
+const createEventSchema = z.object({
+  clientName: z.string().min(1).describe('Full name of the client'),
+  phoneNumber: z.string().min(1).describe('Client phone number with country code if available'),
+  eventTitle: z.string().min(1).describe('Title or type of event (e.g. wedding reception)'),
+  eventDate: z.string().describe('Event date/time in ISO 8601 format'),
+  status: z.enum(EVENT_STATUSES).optional().describe('Initial workflow status; defaults to pending'),
+  advanceAmount: z.number().min(0).optional().describe('Advance payment received'),
+  totalBudget: z.number().min(0).optional().describe('Quoted or agreed total budget'),
+  notes: z.string().optional().describe('Free-form notes from the inquiry'),
+});
+
+const getEventsByDateSchema = z.object({
+  date: z.string().optional().describe('Single day to query (ISO 8601)'),
+  startDate: z.string().optional().describe('Range start (ISO 8601), used with endDate'),
+  endDate: z.string().optional().describe('Range end (ISO 8601), used with startDate'),
+});
+
+const getEventsByStatusSchema = z.object({
+  status: z.enum(EVENT_STATUSES).describe('Event status to filter by'),
+  limit: z.number().int().min(1).max(500).optional().describe('Max records (default 100)'),
+  skip: z.number().int().min(0).optional().describe('Pagination offset (default 0)'),
+});
+
+const updateEventStatusSchema = z.object({
+  eventId: z.string().min(1).describe('Event document id'),
+  status: z.enum(EVENT_STATUSES).optional().describe('New workflow status'),
+  advanceAmount: z.number().min(0).optional().describe('Updated advance payment amount'),
+  totalBudget: z.number().min(0).optional().describe('Updated total budget'),
+  notes: z.string().optional().describe('Replace or append context in notes (replaces field)'),
+});
 
 function toolTextResult(data: unknown): CallToolResult {
   return {
@@ -49,43 +101,28 @@ async function runTool(handler: () => Promise<unknown>): Promise<CallToolResult>
 
 /** Register all event-management MCP tools on the given McpServer instance. */
 export function registerEventTools(server: McpServer): void {
-  server.registerTool(
+  registerEventTool(
+    server,
     'create_event',
-    {
-      description:
-        'Create a new event from a client inquiry. Saves client contact info, event details, optional budget/advance, and initial status (default: pending).',
-      inputSchema: {
-        clientName: z.string().min(1).describe('Full name of the client'),
-        phoneNumber: z.string().min(1).describe('Client phone number with country code if available'),
-        eventTitle: z.string().min(1).describe('Title or type of event (e.g. wedding reception)'),
-        eventDate: z.string().describe('Event date/time in ISO 8601 format'),
-        status: statusSchema.optional().describe('Initial workflow status; defaults to pending'),
-        advanceAmount: z.number().min(0).optional().describe('Advance payment received'),
-        totalBudget: z.number().min(0).optional().describe('Quoted or agreed total budget'),
-        notes: z.string().optional().describe('Free-form notes from the inquiry'),
-      },
-    },
+    'Create a new event from a client inquiry. Saves client contact info, event details, optional budget/advance, and initial status (default: pending).',
+    createEventSchema,
     async (args) =>
       runTool(async () => {
-        const event = await createEvent(args);
+        const event = await createEvent(args as unknown as CreateEventInput);
         return { success: true, event };
-      })
+      }),
   );
 
-  server.registerTool(
+  registerEventTool(
+    server,
     'get_events_by_date',
-    {
-      description:
-        'Retrieve events for a specific calendar day, or for an inclusive date range. Provide either `date` OR both `startDate` and `endDate` (ISO 8601).',
-      inputSchema: {
-        date: z.string().optional().describe('Single day to query (ISO 8601)'),
-        startDate: z.string().optional().describe('Range start (ISO 8601), used with endDate'),
-        endDate: z.string().optional().describe('Range end (ISO 8601), used with startDate'),
-      },
-    },
+    'Retrieve events for a specific calendar day, or for an inclusive date range. Provide either `date` OR both `startDate` and `endDate` (ISO 8601).',
+    getEventsByDateSchema,
     async (args) =>
       runTool(async () => {
-        const { date, startDate, endDate } = args;
+        const date = args.date as string | undefined;
+        const startDate = args.startDate as string | undefined;
+        const endDate = args.endDate as string | undefined;
 
         if (date) {
           const events = await getEventsByDate(date);
@@ -100,45 +137,33 @@ export function registerEventTools(server: McpServer): void {
         throw new ServiceError('Provide either `date` or both `startDate` and `endDate`', {
           code: 'VALIDATION_ERROR',
         });
-      })
+      }),
   );
 
-  server.registerTool(
+  registerEventTool(
+    server,
     'get_events_by_status',
-    {
-      description:
-        'Filter events by workflow status: pending, advance_paid, confirmed, completed, or cancelled.',
-      inputSchema: {
-        status: statusSchema.describe('Event status to filter by'),
-        limit: z.number().int().min(1).max(500).optional().describe('Max records (default 100)'),
-        skip: z.number().int().min(0).optional().describe('Pagination offset (default 0)'),
-      },
-    },
+    'Filter events by workflow status: pending, advance_paid, confirmed, completed, or cancelled.',
+    getEventsByStatusSchema,
     async (args) =>
       runTool(async () => {
-        const { status, limit, skip } = args;
+        const status = args.status as EventStatus;
+        const limit = args.limit as number | undefined;
+        const skip = args.skip as number | undefined;
         return getEventsByStatus(status, { limit, skip });
-      })
+      }),
   );
 
-  server.registerTool(
+  registerEventTool(
+    server,
     'update_event_status',
-    {
-      description:
-        'Update an event by MongoDB id: change status and/or advanceAmount, totalBudget, and notes.',
-      inputSchema: {
-        eventId: z.string().min(1).describe('Event document id'),
-        status: statusSchema.optional().describe('New workflow status'),
-        advanceAmount: z.number().min(0).optional().describe('Updated advance payment amount'),
-        totalBudget: z.number().min(0).optional().describe('Updated total budget'),
-        notes: z.string().optional().describe('Replace or append context in notes (replaces field)'),
-      },
-    },
+    'Update an event by MongoDB id: change status and/or advanceAmount, totalBudget, and notes.',
+    updateEventStatusSchema,
     async (args) =>
       runTool(async () => {
-        const { eventId, ...updates } = args;
+        const { eventId, ...updates } = args as unknown as { eventId: string } & UpdateEventInput;
         const event = await updateEventStatus(eventId, updates);
         return { success: true, event };
-      })
+      }),
   );
 }

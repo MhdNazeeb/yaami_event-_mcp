@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: yaami-event-mcp
+    runtime: node
+    plan: free
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MCP_API_TOKEN
+        generateValue: true
+      - key: MONGODB_URI
+        sync: false
