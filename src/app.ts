@@ -4,11 +4,12 @@ import { mountMcpHttpRoutes } from './mcp/http.js';
 import {
   ServiceError,
   createEvent,
+  deleteEvent,
   getEventById,
   getEventsByDate,
   getEventsByDateRange,
   getEventsByStatus,
-  updateEventStatus,
+  updateEvent,
 } from './services/eventService.js';
 import type { CreateEventInput, EventStatus, UpdateEventInput } from './types/event.js';
 
@@ -82,8 +83,17 @@ export function createApp(): Express {
 
   app.patch('/api/events/:id', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const event = await updateEventStatus(routeParam(req.params.id), req.body as UpdateEventInput);
+      const event = await updateEvent(routeParam(req.params.id), req.body as UpdateEventInput);
       res.json(event);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.delete('/api/events/:id', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await deleteEvent(routeParam(req.params.id));
+      res.json(result);
     } catch (err) {
       next(err);
     }

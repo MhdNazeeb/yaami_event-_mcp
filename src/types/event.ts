@@ -34,6 +34,10 @@ export interface CreateEventInput {
 }
 
 export interface UpdateEventInput {
+  clientName?: string;
+  phoneNumber?: string;
+  eventTitle?: string;
+  eventDate?: string | Date;
   status?: EventStatus;
   advanceAmount?: number;
   totalBudget?: number;

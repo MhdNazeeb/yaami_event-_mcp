@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { EVENT_STATUSES, type CreateEventInput, type EventRecord, type EventsByStatusResult, type EventStatus, type UpdateEventInput } from '../types/event.js';
-import { Event, type EventDocument } from '../models/Event.js';
+import { Event, type EventDocument, type IEvent } from '../models/Event.js';
 
 export interface ServiceErrorOptions {
   code?: string;
@@ -195,9 +195,9 @@ export async function getEventsByStatus(
 }
 
 /**
- * Update status and/or payment fields for an event.
+ * Update any field(s) for an event. Only provided fields are updated (partial update).
  */
-export async function updateEventStatus(eventId: string, updates: UpdateEventInput): Promise<EventRecord> {
+export async function updateEvent(eventId: string, updates: UpdateEventInput): Promise<EventRecord> {
   if (!mongoose.isValidObjectId(eventId)) {
     throw new ServiceError('Invalid event id', {
       code: 'VALIDATION_ERROR',
@@ -206,7 +206,23 @@ export async function updateEventStatus(eventId: string, updates: UpdateEventInp
     });
   }
 
-  const patch: Partial<IEventPatch> = {};
+  const patch: Partial<IEvent> = {};
+
+  if (updates.clientName !== undefined) {
+    patch.clientName = assertNonEmptyString(updates.clientName, 'clientName');
+  }
+
+  if (updates.phoneNumber !== undefined) {
+    patch.phoneNumber = assertNonEmptyString(updates.phoneNumber, 'phoneNumber');
+  }
+
+  if (updates.eventTitle !== undefined) {
+    patch.eventTitle = assertNonEmptyString(updates.eventTitle, 'eventTitle');
+  }
+
+  if (updates.eventDate !== undefined) {
+    patch.eventDate = parseEventDate(updates.eventDate, 'eventDate');
+  }
 
   if (updates.status !== undefined) {
     assertValidStatus(updates.status);
@@ -226,7 +242,7 @@ export async function updateEventStatus(eventId: string, updates: UpdateEventInp
   }
 
   if (Object.keys(patch).length === 0) {
-    throw new ServiceError('At least one field to update is required (status, advanceAmount, totalBudget, notes)', {
+    throw new ServiceError('At least one field to update is required', {
       code: 'VALIDATION_ERROR',
     });
   }
@@ -240,8 +256,6 @@ export async function updateEventStatus(eventId: string, updates: UpdateEventInp
   return toPlainEvent(event);
 }
 
-type IEventPatch = Pick<EventRecord, 'status' | 'advanceAmount' | 'totalBudget' | 'notes'>;
-
 export async function getEventById(eventId: string): Promise<EventRecord> {
   if (!mongoose.isValidObjectId(eventId)) {
     throw new ServiceError('Invalid event id', { code: 'VALIDATION_ERROR', statusCode: 400 });
@@ -251,4 +265,18 @@ export async function getEventById(eventId: string): Promise<EventRecord> {
     throw new ServiceError('Event not found', { code: 'NOT_FOUND', statusCode: 404 });
   }
   return toPlainEvent(event);
+}
+
+/**
+ * Delete an event by MongoDB id.
+ */
+export async function deleteEvent(eventId: string): Promise<{ id: string; deleted: boolean }> {
+  if (!mongoose.isValidObjectId(eventId)) {
+    throw new ServiceError('Invalid event id', { code: 'VALIDATION_ERROR', statusCode: 400, details: { eventId } });
+  }
+  const event = await Event.findByIdAndDelete(eventId);
+  if (!event) {
+    throw new ServiceError('Event not found', { code: 'NOT_FOUND', statusCode: 404, details: { eventId } });
+  }
+  return { id: eventId, deleted: true };
 }

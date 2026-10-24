@@ -10,10 +10,11 @@ import {
 import {
   ServiceError,
   createEvent,
+  deleteEvent,
   getEventsByDate,
   getEventsByDateRange,
   getEventsByStatus,
-  updateEventStatus,
+  updateEvent,
 } from '../services/eventService.js';
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<CallToolResult>;
@@ -57,12 +58,20 @@ const getEventsByStatusSchema = z.object({
   skip: z.number().int().min(0).optional().describe('Pagination offset (default 0)'),
 });
 
-const updateEventStatusSchema = z.object({
+const updateEventSchema = z.object({
   eventId: z.string().min(1).describe('Event document id'),
+  clientName: z.string().min(1).optional().describe('Updated client name'),
+  phoneNumber: z.string().min(1).optional().describe('Updated client phone number'),
+  eventTitle: z.string().min(1).optional().describe('Updated event title'),
+  eventDate: z.string().optional().describe('Updated event date/time in ISO 8601 format'),
   status: z.enum(EVENT_STATUSES).optional().describe('New workflow status'),
   advanceAmount: z.number().min(0).optional().describe('Updated advance payment amount'),
   totalBudget: z.number().min(0).optional().describe('Updated total budget'),
   notes: z.string().optional().describe('Replace or append context in notes (replaces field)'),
+});
+
+const deleteEventSchema = z.object({
+  eventId: z.string().min(1).describe('Event document id to delete'),
 });
 
 function toolTextResult(data: unknown): CallToolResult {
@@ -156,14 +165,27 @@ export function registerEventTools(server: McpServer): void {
 
   registerEventTool(
     server,
-    'update_event_status',
-    'Update an event by MongoDB id: change status and/or advanceAmount, totalBudget, and notes.',
-    updateEventStatusSchema,
+    'update_event',
+    'Update any field(s) for an event by MongoDB id: clientName, phoneNumber, eventTitle, eventDate, status, advanceAmount, totalBudget, and/or notes. Only provided fields are updated (partial update).',
+    updateEventSchema,
     async (args) =>
       runTool(async () => {
         const { eventId, ...updates } = args as unknown as { eventId: string } & UpdateEventInput;
-        const event = await updateEventStatus(eventId, updates);
+        const event = await updateEvent(eventId, updates);
         return { success: true, event };
+      }),
+  );
+
+  registerEventTool(
+    server,
+    'delete_event',
+    'Delete an event by MongoDB id. This operation is irreversible.',
+    deleteEventSchema,
+    async (args) =>
+      runTool(async () => {
+        const { eventId } = args as unknown as { eventId: string };
+        const result = await deleteEvent(eventId);
+        return { success: true, ...result };
       }),
   );
 }
